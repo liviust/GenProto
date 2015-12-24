@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>连连看</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<link href="./favicon.ico" rel="shortcut icon">
+<script src="./assets/js/go.js"></script>
+<link href="./assets/css/genproto.css" rel="stylesheet" type="text/css" />
+<link href="./assets/css/jquery.toastmessage.css" rel="stylesheet" type="text/css" />
+<script src="genproto.js"></script>
+<script src="./js/util.js"></script>
+<script id="code">
+  var lastStroked = null;  // this remembers the last highlit Shape
+  var isBlobDisplay = true;
+  var isNumoutDisplay = true;
+</script>
+
+<script src="./assets/js/jquery-1.5.min.js"></script>
+<script src="./assets/js/jquery.toastmessage.js"></script>
+<script src="./js/toast_msg.js"></script>
+
+<!-- old script -->
+<!-- <script src="./js/main.js"></script> -->
+<!-- <script src="./js/prototxt_formatter.js"></script> -->
+<!-- <script src="./js/parser_new.js"></script> -->
+<!-- <script src="./js/action_listener.js"></script> -->
+<!-- end -->
+
+<!-- new script -->
+<script src="./js/main.js"></script> 
+<script src="./js/prototxt_formatter.js"></script>
+<script src="./js/parser.js"></script>
+<script src="./js/action_listener.js"></script>
+<!-- end -->
+
+<script src="./js/layout.js"></script>
+<script src="./js/stat.js"></script>
+
+<script src="./js/test.js"></script>
+<script src="./js/func.js"></script>
+
+<!-- optimize textarea -->
+<link rel="stylesheet" href="lib/codemirror-5.6/lib/codemirror.css">
+<link rel="stylesheet" href="lib/codemirror-5.6/addon/hint/show-hint.css">
+<script src="lib/codemirror-5.6/lib/codemirror.js"></script>
+<script src="lib/codemirror-5.6/addon/hint/show-hint.js"></script>
+<script src="lib/codemirror-5.6/addon/hint/anyword-hint.js"></script>
+<script src="lib/codemirror-5.6/mode/javascript/javascript.js"></script>
+
+
+<script>
+  //diagram -> saved_model
+  function save() {
+
+    _model = myDiagram.model.toJson();
+    _model = prettifyJSONString(_model);
+    document.getElementById("mySavedModel").value = _model;
+    document.getElementById("prototxt").value = save_prototxt(eval('['+_model+']'));
+    editor_proto.setValue(document.getElementById("prototxt").value);
+    //gen_map_size_from_struct(myDiagram.model["nodeDataArray"], myDiagram.model["linkDataArray"]);
+    compute_attr_info(myDiagram.model["nodeDataArray"], myDiagram.model["linkDataArray"]);
+    myDiagram.isModified = false;
+  }
+
+  //saved_model -> diagram
+  function load() {
+    _model = document.getElementById("mySavedModel").value;
+    myDiagram.model = go.Model.fromJson(_model);
+    document.getElementById("prototxt").value = save_prototxt(eval('['+_model+']'));
+    editor_proto.setValue(document.getElementById("prototxt").value);
+    // show num output
+    isNumoutDisplay = false;
+    changeNumoutDisplay();
+    //gen_map_size_from_struct(myDiagram.model["nodeDataArray"], myDiagram.model["linkDataArray"]);
+    compute_attr_info(myDiagram.model["nodeDataArray"], myDiagram.model["linkDataArray"]);
+  }
+
+  function recompute_model_size() {
+    compute_attr_info(myDiagram.model["nodeDataArray"], myDiagram.model["linkDataArray"]);
+  }
+  
+
+  function showLoadingDiv() {            
+    document.getElementById("overlap-bg").style.display ="block";
+  }
+  function hideLoadingDiv() {
+    document.getElementById("overlap-bg").style.display ='none';
+  }
+  function gen_model() {
+    showLoadingDiv();
+    var worker =new Worker("./js/parser.js"); 
+    var data = {};
+    data.prototxt = document.getElementById("prototxt").value;
+    worker.postMessage(data);              
+    worker.onmessage =function(evt){      
+      var _model = go.Model.fromJson(evt.data);
+      myDiagram.model = go.Model.fromJson(_model.toJson()); // store the prototxt to global model
+      document.getElementById("mySavedModel").value = gen_loc_from_layers(_model["nodeDataArray"], 
+        _model["linkDataArray"], _model);
+      load();
+      setTimeout('hideLoadingDiv()', _model["nodeDataArray"].length*50+500);
+      //hideLoadingDiv();
+    }
+  }
+
+  function changeBlobDisplay() {
+    var _saveModel = document.getElementById("mySavedModel").value;
+    var _model = go.Model.fromJson(_saveModel);
+    isBlobDisplay = !isBlobDisplay;
+    if (isBlobDisplay) { // show blob
+      document.getElementById('blob_display_btn').innerHTML = 'HideBlob';
+    } else { // hide blob
+      document.getElementById('blob_display_btn').innerHTML = 'ShowBlob';
+    }
+    _model["linkDataArray"] = changeBlobStatus(_model["linkDataArray"], isBlobDisplay);
+    myDiagram.model = _model; // reload the UI
+    //save
+    _model = myDiagram.model.toJson();
+    _model = prettifyJSONString(_model);
+    document.getElementById("mySavedModel").value = _model;
+  }
+
+  function changeNumoutDisplay() {
+    var _saveModel = document.getElementById("mySavedModel").value;
+    var _model = go.Model.fromJson(_saveModel);
+    isNumoutDisplay = !isNumoutDisplay;
+    if (isNumoutDisplay) { // show blob
+      document.getElementById('numout_display_btn').innerHTML = 'HideNumOutput';
+    } else { // hide blob
+      document.getElementById('numout_display_btn').innerHTML = 'ShowNumOutput';
+    }
+    _model["linkDataArray"] = changeNumoutputsStatus(_model["linkDataArray"], isNumoutDisplay);
+    myDiagram.model = _model; // reload the UI
+    //save
+    _model = myDiagram.model.toJson();
+    _model = prettifyJSONString(_model);
+    document.getElementById("mySavedModel").value = _model;
+  }
+
+  // add an SVG rendering of the diagram at the end of this page
+  function makeSVG() {
+    var svg = myDiagram.makeSvg({
+        scale: 1
+      });
+    svg.style.border = "1px solid black";
+    obj = document.getElementById("SVGArea");
+    obj.appendChild(svg);
+    if (obj.children.length > 0)
+      obj.replaceChild(svg, obj.children[0]);
+  }
+
+  function convertImageToCanvas(image) {
+    var canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    canvas.getContext("2d").drawImage(image, 0, 0);
+
+    return canvas;
+  }
+
+  function save_to_image() {
+    var image = new Image();
+    var obj = document.getElementById("myDiagram");
+    var _canvas = obj.childNodes[0];
+    image.src = _canvas.toDataURL("1.png");
+    var png = convertImageToCanvas(image);
+    document.getElementById("newArea").appendChild(png);
+    //return image;
+  }
+
+  function saveTextAsFile()
+  {
+      var textToWrite = document.getElementById("prototxt").value;
+      var textFileAsBlob = new Blob([textToWrite], {type:'text/plain'});
+      var fileNameToSaveAs = "prototxt.txt";
+      var downloadLink = document.createElement("a");
+      downloadLink.download = fileNameToSaveAs;
+      downloadLink.innerHTML = "Download File";
+      if (window.webkitURL != null)
+      {
+          // Chrome allows the link to be clicked
+          // without actually adding it to the DOM.
+          downloadLink.href = window.webkitURL.createObjectURL(textFileAsBlob);
+      }
+      else
+      {
+          // Firefox requires the link to be added to the DOM
+          // before it can be clicked.
+          downloadLink.href = window.URL.createObjectURL(textFileAsBlob);
+          downloadLink.onclick = destroyClickedElement;
+          downloadLink.style.display = "none";
+          document.body.appendChild(downloadLink);
+      }
+
+      downloadLink.click();
+  }
+
+
+  function clickUpload() {
+    document.getElementById("upload_file").click();
+  }
+
+  function uploadAndSubmit() {
+
+    if (document.getElementById("upload_file").files.length === 0) { return; }
+    var file = document.getElementById("upload_file").files[0];
+    //if (file.type != "text/plain") {
+    //  alert("Invalid file type!");
+    //  return;
+    //}
+
+    var reader = new FileReader();
+
+    reader.onloadstart = function() {
+       console.log("onloadstart");
+    }
+    reader.onprogress = function(p) {
+       console.log("onprogress");
+    }
+
+    reader.onload = function() {
+       console.log("load complete");
+    }
+
+    reader.onloadend = function() {
+        if (reader.error) {
+           console.log(reader.error);
+        } else {
+           document.getElementById("prototxt").value = reader.result;
+           editor_proto.setValue(document.getElementById("prototxt").value);
+        }
+    }
+
+    reader.readAsText(file);
+  }
+</script>
+
+<script>
+  function gen_simplified_struct() {
+    save();
+
+    var _struct_json = document.getElementById("mySavedModel").value;
+    var _model = go.Model.fromJson(_struct_json);
+    //console.log(_model["nodeDataArray"]);
+    document.getElementById("mySavedModel").value = gen_loc_from_layers(_model["nodeDataArray"], _model["linkDataArray"], _model);
+    load();
+  }
+</script>
+
+<script>
+  function rm_bn() {
+    var _struct_json = document.getElementById("mySavedModel").value;
+    var _model = go.Model.fromJson(_struct_json);
+    document.getElementById("mySavedModel").value = remove_bn_layers(_model["nodeDataArray"], _model["linkDataArray"], _model);
+    load();
+  }
+  function add_lr_zero() {
+    var _struct_json = document.getElementById("mySavedModel").value;
+    var _model = go.Model.fromJson(_struct_json);
+    document.getElementById("mySavedModel").value = add_lr_zero_layers(_model["nodeDataArray"], _model);
+    load();    
+  }
+</script>
+<script type="text/javascript" src="data.json"></script>
+<script>
+  _layers = _layers_info[0];
+</script>
+</head>
+<body onload="init()">
+<div style="text-align:center;">
+<h1>Caffe Prototxt Generator<a href="http://www.github.com/yl-1993/GenProto"><img src="./assets/img/github.gif" width="32"></a></h1>
+</div>
+
+<!-- Loading overlap -->
+<div id="overlap-bg"><img src="./assets/img/loading.gif" style="height:100%"></div>
+
+<div id="sample">
+  <div style="width:100%; white-space:nowrap;">
+    <span style="display: inline-block; vertical-align: top; padding: 5px; width:15%">
+      <h2 style="margin-top:-10px">Classic Network</h2>
+      <table style="margin-left:-15px">
+        <tr>
+          <td><button onclick="load_test_net('googlenet_prototxt.js');">googlenet</button></td>
+          <td><button onclick="load_test_net('alexnet_prototxt.js');">alexnet</button></td>
+          <td><button onclick="load_test_net('caffenet_prototxt.js');">caffenet</button></td>
+        </tr>
+      </table>
+      <h2>Data Layers</h2>
+      <div id="myPalette" style="border: solid 1px gray; height: 250px"></div>
+      <h2>Common Layers</h2>
+      <div id="myPalette1" style="border: solid 1px gray; height: 250px"></div>
+    </span>
+
+    <span style="display: inline-block; vertical-align: top; padding: 5px; width:50%">
+      <div id="myDiagram" style="border: solid 1px gray; height: 950px"></div>
+      <div id="infoBoxHolder">
+        <!-- Initially Empty, it is populated when updateInfoBox is called -->
+      </div>
+    </span>
+
+    <span style="display: inline-block; vertical-align: top; padding: 5px; width:30%">
+        <table>
+          <tr>
+            <td><button onclick="gen_simplified_struct()" style="display:block;">Simplify</button></td>
+            <td><button id="SaveButton" onclick="save()" style="display:block;">Save</button></td>
+            <!-- <td><button onclick="gen_model_from_prototxt()" style="display:block;">Load</button></td> -->
+            <td><button onclick="gen_model()" style="display:block;">Load</button></td>
+          </tr>
+          <tr>
+            <td><button onclick="saveTextAsFile()" style="display:block;">Download</button></td>
+            <td>
+              <button onclick="clickUpload()" style="display:block;">Upload</button>
+              <input type="file" name="file" id="upload_file" style="display:none;" onchange="uploadAndSubmit();"/>
+            </td>
+          </tr>
+          <tr>
+            <td><button id="blob_display_btn" onclick="changeBlobDisplay()" style="display:block;">HideBlob</button></td>
+            <td><button id="numout_display_btn" onclick="changeNumoutDisplay()" style="display:block;">HideNumOutput</button></td>
+          </tr>
+          <tr>
+            <td><button onclick="makeSVG()" style="display:block;">Render as SVG</button></td>
+            <td><button onclick="save_to_image()" style="display:block;">Render as image</button></td>
+          </tr>
+          <tr>
+            <td><button onclick="myDiagram.clear();">Clear board</button></td>
+          </tr>
+          <tr>
+            <td><button onclick="rm_bn();">Remove BN</button></td>
+            <td><button onclick="add_lr_zero();">Add lr=0</button></td>
+          </tr>
+        </table>
+        <div style="margin-top: 10px;">
+          Input size(w*h*c): 
+          <input id="input_width" onchange="recompute_model_size();"/> x 
+          <input id="input_height" onchange="recompute_model_size();"/> x 
+          <input id="input_channel" onchange="recompute_model_size();"/>
+        </div>
+        <div style="margin-top: 10px;">
+          Model size is about: <b id="model_size_mb">0</b> MB (<b id="model_size">0</b> KB)
+        </div>
+<!--         <div style="">
+          Memory required for data is: <b id="data_memory">1</b> MB
+        </div> -->
+        <div style="margin-bottom: 10px;">
+          <!-- (measured by floating-point calculation) -->
+          Calculation magnitude: <b id="calculation">0</b>
+        </div>
+<!--         <div style="margin-bottom: 10px;">
+          <div id="propertiesPanel" style="display: none; background-color: aliceblue; border: solid 1px black; overflow-x: auto;padding:10px;">
+            <b>Layer Parameter</b><br />
+            <table id="propertiesTable">
+            <tr>
+              <td>name:</td>
+              <td><input type="text" id="name" value="" onchange="updateData(this.value, 'name')" /></td>
+            </tr>
+            <tr>
+              <td>type:</td>
+              <td><input type="text" id="category" value=""  disabled/></td>
+            </tr>
+            </table>
+          </div>
+        </div> -->
+        <div style="margin-top:10px">
+          <!-- <div id="json_edit_panel" onchange="saveEditedLayer()"> -->
+          <div id="json_edit_panel">
+            <h4>Layer: </h4>
+            <textarea id="layer_edit" style="width: 400px; max-height: 600px;"></textarea>
+            <div style="display:none;">
+              <button onclick="saveEditedLayer()">save</button>
+            </div>
+            <div id="editor_holder"></div>
+
+          </div>
+        </div>
+        <h4>Relationship</h4>
+        <div>
+          Top Layers: <b id="topLayers"></b> <br/>
+          Bottom Layers:<b id="bottomLayers"></b>
+        </div>
+        <h4>Prototxt: </h4>
+        <div>
+          <textarea style="width: 100%;height: 500px;" id="prototxt"></textarea>
+        </div>
+    </span>
+
+  </div>
+  <!-- <button onclick="showErrorToast()">error</button> -->
+  <style>
+  .text-bottom .panel{
+    width: 600px;
+    float: left;
+    padding: 20px;
+  }
+  .text-bottom .panel textarea{
+    width: 100%;
+    height: 500px;
+  }
+  </style>
+  <div class="text-bottom" style="display:none">
+    <div class="panel">
+      <textarea id="mySavedModel">
+{
+  "class": "go.GraphLinksModel",
+  "linkFromPortIdProperty": "fromPort",
+  "linkToPortIdProperty": "toPort",
+  "nodeDataArray": [
+    {
+      "json": {
+        "name": "cifar",
+        "type": "Data",
+        "top": [
+          "data",
+          "label"
+        ],
+        "include": {
+          "phase": "TRAIN"
+        },
+        "transform_param": {
+          "mean_file": "examples/cifar10/mean.binaryproto"
+        },
+        "data_param": {
+          "source": "examples/cifar10/cifar10_train_lmdb",
+          "batch_size": 100,
+          "backend": "LMDB"
+        }
+      },
+      "name": "cifar",
+      "top": [
+        "data",
+        "label"
+      ],
+      "type": "Data",
+      "category": "DATA",
+      "key": "cifar_TRAIN",
+      "loc": "-45 325",
+      "layout": {
+        "depth": 1,
+        "nextdepth": 2
+      }
+    },
+    {
+      "json": {
+        "name": "cifar",
+        "type": "Data",
+        "top": [
+          "data",
+          "label"
+        ],
+        "include": {
+          "phase": "TEST"
+        },
+        "transform_param": {
+          "mean_file": "examples/cifar10/mean.binaryproto"
+        },
+        "data_param": {
+          "source": "examples/cifar10/cifar10_test_lmdb",
+          "batch_size": 100,
+          "backend": "LMDB"
+        }
+      },
+      "name": "cifar",
+      "top": [
+        "data",
+        "label"
+      ],
+      "type": "Data",
+      "category": "DATA",
+      "key": "cifar_TEST",
+      "loc": "-45 455",
+      "layout": {
+        "depth": 1,
+        "nextdepth": 2
+      }
+    },
+    {
+      "json": {
+        "name": "conv1",
+        "type": "Convolution",
+        "bottom": "data",
+        "top": "conv1",
+        "param": [
+          {
+            "lr_mult": 1
+          },
+          {
+            "lr_mult": 2
+          }
+        ],
+        "convolution_param": {
+          "num_output": 32,
+          "pad": 2,
+          "kernel_size": 5,
+          "stride": 1,
+          "weight_filler": {
+            "type": "gaussian",
+            "std": 0.0001
+          },
+          "bias_filler": {
+            "type": "constant"
+          }
+        }
+      },
+      "name": "conv1",
+      "top": "conv1",
+      "bottom": "data",
+      "type": "Convolution",
+      "category": "CONVOLUTION",
+      "key": "conv1",
+      "layout": {
+        "depth": 2,
+        "nextdepth": 3
+      },
+      "loc": "0 65"
+    },
+    {
+      "json": {
+        "name": "pool1",
+        "type": "Pooling",
+        "bottom": "conv1",
+        "top": "pool1",
+        "pooling_param": {
+          "pool": "MAX",
+          "kernel_size": 3,
+          "stride": 2
+        }
+      },
+      "name": "pool1",
+      "top": "pool1",
+      "bottom": "conv1",
+      "type": "Pooling",
+      "category": "POOLING",
+      "key": "pool1",
+      "layout": {
+        "depth": 3,
+        "nextdepth": 4
+      },
+      "loc": "0 -65"
+    },
+    {
+      "json": {
+        "name": "norm1",
+        "type": "LRN",
+        "bottom": "pool1",
+        "top": "norm1",
+        "lrn_param": {
+          "local_size": 3,
+          "alpha": 0.00005,
+          "beta": 0.75,
+          "norm_region": "WITHIN_CHANNEL"
+        }
+      },
+      "name": "norm1",
+      "top": "norm1",
+      "bottom": "pool1",
+      "type": "LRN",
+      "category": "OTHERS",
+      "key": "norm1",
+      "layout": {
+        "depth": 4,
+        "nextdepth": 5
+      },
+      "loc": "0 -195"
+    },
+    {
+      "json": {
+        "name": "conv2",
+        "type": "Convolution",
+        "bottom": "norm1",
+        "top": "conv2",
+        "param": [
+          {
+            "lr_mult": 1
+          },
+          {
+            "lr_mult": 2
+          }
+        ],
+        "convolution_param": {
+          "num_output": 32,
+          "pad": 2,
+          "kernel_size": 5,
+          "stride": 1,
+          "weight_filler": {
+            "type": "gaussian",
+            "std": 0.01
+          },
+          "bias_filler": {
+            "type": "constant"
+          }
+        }
+      },
+      "name": "conv2",
+      "top": "conv2",
+      "bottom": "norm1",
+      "type": "Convolution",
+      "category": "CONVOLUTION",
+      "key": "conv2",
+      "layout": {
+        "depth": 5,
+        "nextdepth": 6
+      },
+      "loc": "0 -325"
+    },
+    {
+      "json": {
+        "name": "pool2",
+        "type": "Pooling",
+        "bottom": "conv2",
+        "top": "pool2",
+        "pooling_param": {
+          "pool": "AVE",
+          "kernel_size": 3,
+          "stride": 2
+        }
+      },
+      "name": "pool2",
+      "top": "pool2",
+      "bottom": "conv2",
+      "type": "Pooling",
+      "category": "POOLING",
+      "key": "pool2",
+      "layout": {
+        "depth": 6,
+        "nextdepth": 7
+      },
+      "loc": "0 -455"
+    },
+    {
+      "json": {
+        "name": "norm2",
+        "type": "LRN",
+        "bottom": "pool2",
+        "top": "norm2",
+        "lrn_param": {
+          "local_size": 3,
+          "alpha": 0.00005,
+          "beta": 0.75,
+          "norm_region": "WITHIN_CHANNEL"
+        }
+      },
+      "name": "norm2",
+      "top": "norm2",
+      "bottom": "pool2",
+      "type": "LRN",
+      "category": "OTHERS",
+      "key": "norm2",
+      "layout": {
+        "depth": 7,
+        "nextdepth": 8
+      },
+      "loc": "0 -585"
+    },
+    {
+      "json": {
+        "name": "conv3",
+        "type": "Convolution",
+        "bottom": "norm2",
+        "top": "conv3",
+        "convolution_param": {
+          "num_output": 64,
+          "pad": 2,
+          "kernel_size": 5,
+          "stride": 1,
+          "weight_filler": {
+            "type": "gaussian",
+            "std": 0.01
+          },
+          "bias_filler": {
+            "type": "constant"
+          }
+        }
+      },
+      "name": "conv3",
+      "top": "conv3",
+      "bottom": "norm2",
+      "type": "Convolution",
+      "category": "CONVOLUTION",
+      "key": "conv3",
+      "layout": {
+        "depth": 8,
+        "nextdepth": 9
+      },
+      "loc": "0 -715"
+    },
+    {
+      "json": {
+        "name": "pool3",
+        "type": "Pooling",
+        "bottom": "conv3",
+        "top": "pool3",
+        "pooling_param": {
+          "pool": "AVE",
+          "kernel_size": 3,
+          "stride": 2
+        }
+      },
+      "name": "pool3",
+      "top": "pool3",
+      "bottom": "conv3",
+      "type": "Pooling",
+      "category": "POOLING",
+      "key": "pool3",
+      "layout": {
+        "depth": 9,
+        "nextdepth": 10
+      },
+      "loc": "0 -845"
+    },
+    {
+      "json": {
+        "name": "ip1",
+        "type": "InnerProduct",
+        "bottom": "pool3",
+        "top": "ip1",
+        "param": [
+          {
+            "lr_mult": 1,
+            "decay_mult": 250
+          },
+          {
+            "lr_mult": 2,
+            "decay_mult": 0
+          }
+        ],
+        "inner_product_param": {
+          "num_output": 10,
+          "weight_filler": {
+            "type": "gaussian",
+            "std": 0.01
+          },
+          "bias_filler": {
+            "type": "constant"
+          }
+        }
+      },
+      "name": "ip1",
+      "top": "ip1",
+      "bottom": "pool3",
+      "type": "InnerProduct",
+      "category": "INNERPRODUCT",
+      "key": "ip1",
+      "layout": {
+        "depth": 10,
+        "nextdepth": 11
+      },
+      "loc": "0 -975"
+    },
+    {
+      "json": {
+        "name": "accuracy",
+        "type": "Accuracy",
+        "bottom": [
+          "ip1",
+          "label"
+        ],
+        "top": "accuracy",
+        "include": {
+          "phase": "TEST"
+        }
+      },
+      "name": "accuracy",
+      "top": "accuracy",
+      "bottom": [
+        "ip1",
+        "label"
+      ],
+      "type": "Accuracy",
+      "category": "LOSS",
+      "key": "accuracy_TEST",
+      "layout": {
+        "depth": 11,
+        "nextdepth": 200
+      },
+      "loc": "-145 -1105"
+    },
+    {
+      "json": {
+        "name": "loss",
+        "type": "SoftmaxWithLoss",
+        "bottom": [
+          "ip1",
+          "label"
+        ],
+        "top": "loss"
+      },
+      "name": "loss",
+      "top": "loss",
+      "bottom": [
+        "ip1",
+        "label"
+      ],
+      "type": "SoftmaxWithLoss",
+      "category": "LOSS",
+      "key": "loss",
+      "layout": {
+        "depth": 11,
+        "nextdepth": 200
+      },
+      "loc": "55 -1105"
+    }
+  ],
+  "linkDataArray": [
+    {
+      "blob_name": "data",
+      "old_name": "data",
+      "from": "cifar_TRAIN",
+      "to": "conv1",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "data",
+      "old_name": "data",
+      "from": "cifar_TEST",
+      "to": "conv1",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "label",
+      "old_name": "label",
+      "from": "cifar_TRAIN",
+      "to": "accuracy_TEST",
+      "visible": true,
+      "fromPort": "L",
+      "toPort": "L",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "label",
+      "old_name": "label",
+      "from": "cifar_TEST",
+      "to": "accuracy_TEST",
+      "visible": true,
+      "fromPort": "L",
+      "toPort": "L",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "label",
+      "old_name": "label",
+      "from": "cifar_TRAIN",
+      "to": "loss",
+      "visible": true,
+      "fromPort": "R",
+      "toPort": "R",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "label",
+      "old_name": "label",
+      "from": "cifar_TEST",
+      "to": "loss",
+      "visible": true,
+      "fromPort": "R",
+      "toPort": "R",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "conv1",
+      "old_name": "conv1",
+      "from": "conv1",
+      "to": "pool1",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": "32"
+    },
+    {
+      "blob_name": "pool1",
+      "old_name": "pool1",
+      "from": "pool1",
+      "to": "norm1",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "text": "ReLU",
+      "relu_data": {
+        "name": "relu1",
+        "type": "ReLU",
+        "bottom": "pool1",
+        "top": "pool1"
+      },
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "norm1",
+      "old_name": "norm1",
+      "from": "norm1",
+      "to": "conv2",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "conv2",
+      "old_name": "conv2",
+      "from": "conv2",
+      "to": "pool2",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "text": "ReLU",
+      "relu_data": {
+        "name": "relu2",
+        "type": "ReLU",
+        "bottom": "conv2",
+        "top": "conv2"
+      },
+      "points": [],
+      "num_output": "32"
+    },
+    {
+      "blob_name": "pool2",
+      "old_name": "pool2",
+      "from": "pool2",
+      "to": "norm2",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "norm2",
+      "old_name": "norm2",
+      "from": "norm2",
+      "to": "conv3",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "conv3",
+      "old_name": "conv3",
+      "from": "conv3",
+      "to": "pool3",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "text": "ReLU",
+      "relu_data": {
+        "name": "relu3",
+        "type": "ReLU",
+        "bottom": "conv3",
+        "top": "conv3"
+      },
+      "points": [],
+      "num_output": "64"
+    },
+    {
+      "blob_name": "pool3",
+      "old_name": "pool3",
+      "from": "pool3",
+      "to": "ip1",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": ""
+    },
+    {
+      "blob_name": "ip1",
+      "old_name": "ip1",
+      "from": "ip1",
+      "to": "accuracy_TEST",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": "10"
+    },
+    {
+      "blob_name": "ip1",
+      "old_name": "ip1",
+      "from": "ip1",
+      "to": "loss",
+      "visible": true,
+      "fromPort": "T",
+      "toPort": "B",
+      "points": [],
+      "num_output": "10"
+    }
+  ]
+}
+      </textarea>
+    </div>
+    <div class="panel">
+<!--       <textarea id="prototxt">
+      </textarea> -->
+    </div>
+  </div>
+
+
+
+  <!-- <button onclick="save_to_image()" style="display:block;">Render as image</button> -->
+  <!-- <button onclick="makeSVG()" style="display:block;">Render as SVG</button> -->
+  <div id="SVGArea"></div>
+  <div id="newArea"></div>
+  <div>
+    <p>This page is created by <a href="http://www.w3.org/TR/html5/">HTML5</a> Canvas and <a href="https://github.com/NorthwoodsSoftware/GoJS">GoJS</a> plugin.</p>
+    <div style="display:none;">
+    <p>The example shown above can be found at <a href="http://caffe.berkeleyvision.org/tutorial/fig/logreg.jpg">caffe blob</a></p>
+    <p>Usage:</p>
+    <li>Drag the objects on the left to right canvas.</li>
+    <li>Draw line from top to bottom.(Corresponding to caffe setting)</li>
+    <li>Support some basic shortcut key.(e.g. 'Delete','Ctrl+Z','Ctrl+Y') </li>
+    <li>Generate prototxt by canvas object.</li>
+    <li>Click on a layer and show its parameter.(e.g. click 'DATA' and show 'source, batch_size, ...')</li>
+    <li>Upload a prototxt file and transform it to an editable image.</li>
+    <p>TODO:</p>
+    </div>
+  </div>
+</div>
+<style type="text/css">
+.CodeMirror {
+  border: 1px solid #eee;
+  height: auto;
+}
+</style>
+<script>
+  CodeMirror.commands.autocomplete = function(cm) {
+    cm.showHint({hint: CodeMirror.hint.anyword});
+  }
+  var editor_proto = CodeMirror.fromTextArea(document.getElementById("prototxt"), {
+    mode: 'javascript',
+    lineNumbers: true,
+    indentUnit: 2,
+    extraKeys: {"Ctrl-R": "autocomplete"}
+  });
+  var editor_layer = CodeMirror.fromTextArea(document.getElementById("layer_edit"), {
+    lineNumbers: true,
+    viewportMargin: Infinity,
+    extraKeys: {"Ctrl-R": "autocomplete"}
+  });
+  editor_proto.on("change", function(){ 
+    editor_proto.save();
+  });
+  editor_layer.on("change", function(){ 
+    editor_layer.save();
+  });
+  editor_layer.on("blur", function(){ 
+    saveEditedLayer();
+  });
+  editor_proto.setSize("100%", 500);
+</script>
+
+</body>
+</html>
